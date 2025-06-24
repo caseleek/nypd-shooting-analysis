@@ -1,0 +1,113 @@
+---
+title: "NYPD Shooting Incident Analysis"
+output:
+  pdf_document: default
+  html_document: default
+date: "2025-06-24"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(lubridate)
+```
+
+
+## Get the Current Data
+```{r}
+url_in <- "https://data.cityofnewyork.us/api/views/833y-fsy8/rows.csv?accessType=DOWNLOAD"
+
+nypd_shooting <- read_csv(url_in)
+```
+
+## Clean Data and extract year
+```{r}
+nypd_shooting <- nypd_shooting %>%
+  mutate(
+    occur_date = mdy(OCCUR_DATE),
+    year = year(occur_date)
+  ) %>%
+  filter(!is.na(year))
+```
+
+## Total Shootings Over Time
+``` {r}
+shootings_by_year <- nypd_shooting %>%
+  group_by(year) %>%
+  summarise(total_shootings = n())
+
+ggplot(shootings_by_year, aes(x = year, y = total_shootings)) +
+  geom_line(color = "darkred", linewidth = 1) +
+  geom_point() +
+  labs(
+    title = "Total Shootings by Year in NYC",
+    x = "Year",
+    y = "Number of Shootings"
+  ) +
+  theme_minimal()
+```
+
+## Total Shootings by Precinct
+``` {r}
+shootings_by_precinct <- nypd_shooting %>%
+  group_by(PRECINCT) %>%
+  summarise(total_shootings = n()) %>%
+  arrange(desc(total_shootings))
+
+head(shootings_by_precinct)
+```
+
+## Location with Most Shootings
+``` {r}
+nypd_shooting %>%
+     filter(PRECINCT == 75)
+```
+### Analyzing the data, the location with the most shooting is in Brooklyn, New York.
+
+## Total Shootings by Borough
+``` {r}
+shootings_by_boro <- nypd_shooting %>%
+  group_by(BORO) %>%
+  summarise(total_shootings = n()) %>%
+  arrange(desc(total_shootings))
+
+ggplot(shootings_by_boro, aes(x = reorder(BORO, -total_shootings), y = total_shootings)) +
+  geom_col(fill = "steelblue") +
+  labs(
+    title = "Total Shootings by Borough",
+    x = "Borough",
+    y = "Number of Shootings"
+  ) +
+    theme_minimal()
+```
+
+# Create model
+``` {r}
+model_shootings <- lm(total_shootings ~ year, data = shootings_by_year)
+``` 
+
+# View model summary
+``` {r}
+summary(model_shootings)
+```
+
+# Plot of Model
+``` {r}
+ggplot(shootings_by_year, aes(x = year, y = total_shootings)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE, color = "blue") +
+  labs(
+    title = "Linear Model: Shootings Over Time",
+    x = "Year",
+    y = "Number of Shootings"
+  ) +
+  theme_minimal()
+```
+
+# Conclusion
+In this project, I looked at NYPD shooting data to see how things have changed over time. I started by checking the total number of shootings each year and found out which precinct had the most. I also found that Brooklyn had the highest number of shootings overall.
+
+I made a simple model to see if shootings were going up or down over time. The model showed that shootings have been going down, which gives some insight into how gun violence has changed in the city.
+
+When doing this analysis, I tried to keep things honest and simple. I focused on being fair and clear with how I handled the data so I would not bring in any personal bias.
+

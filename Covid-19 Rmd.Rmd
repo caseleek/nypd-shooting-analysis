@@ -1,0 +1,175 @@
+---
+title: "Covid-19 John Hopkins Data"
+author: "Casey Leek"
+date: "2025-06-24"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(lubridate)
+```
+
+## Get data and read it in
+```{r}
+base_url <- "https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/"
+
+files <- 
+c("time_series_covid19_confirmed_global.csv",
+  "time_series_covid19_deaths_global.csv",
+  "time_series_covid19_confirmed_US.csv",
+  "time_series_covid19_deaths_US.csv"
+)
+
+url_covid <- str_c(base_url, files)
+
+global_cases <- read_csv(url_covid[1])
+global_deaths <- read_csv(url_covid[2])
+us_cases <- read_csv(url_covid[3])
+us_deaths <- read_csv(url_covid[4])
+
+
+global_cases <- global_cases %>%
+  pivot_longer(
+    cols = -c(`Province/State`, 
+              `Country/Region`, Lat, Long),
+    names_to = "date",
+    values_to = "cases"
+  ) %>%
+  select(c(-Lat, -Long))
+  
+global_deaths <- global_deaths %>%
+  pivot_longer(
+    cols = -c(`Province/State`, 
+              `Country/Region`, Lat, Long),
+    names_to = "date",
+    values_to = "deaths"
+  ) %>%
+  select(c(-Lat, -Long))
+  
+global <- global_cases %>%
+    full_join(global_deaths) %>%
+    rename(Country_Region = `Country/Region`,
+           Province_State = `Province/State`) %>%
+           mutate(date =mdy(date))
+           
+global <- global %>% filter(cases > 0)
+```
+
+## Checking Data
+```{r}
+global %>% filter(cases > 100000000)
+
+us_cases %>%
+    pivot_longer(cols = -(UID:Combined_Key),
+                 names_to = "date", 
+                 values_to = "cases")
+                 
+```                 
+## Fixing US Cases Data
+```{r}
+us_cases <- us_cases %>%
+    pivot_longer(cols = -(UID:Combined_Key),
+                 names_to = "date", 
+                 values_to = "cases") %>%
+    select(Admin2:cases) %>%
+    mutate(date = mdy(date)) %>%
+    select(-c(Lat, Long_))
+```    
+## Fixing US Deaths Data
+```{r}
+us_deaths <- us_deaths %>%
+    pivot_longer(cols = -(UID:Population),
+                 names_to = "date", 
+                 values_to = "deaths") %>%
+    select(Admin2:deaths) %>%
+    mutate(date = mdy(date)) %>%
+    select(-c(Lat, Long_))
+```    
+    
+## Join Death & Cases
+```{r}
+US <- us_cases %>%
+    full_join(us_deaths)
+```   
+## Add to Global
+```{r}
+global <- global %>%
+    unite("Combined_Key",
+          c(Province_State, Country_Region),
+          sep = ", ",
+          na.rm = TRUE,
+          remove = FALSE)
+```
+
+## Add Population - UID csv
+```{r}
+uid_lookup_url <-"https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/UID_ISO_FIPS_LookUp_Table.csv"
+uid <- read_csv(uid_lookup_url) %>%
+     select(-c(Lat, Long_, Combined_Key, code3, iso2, iso3, Admin2))
+
+
+global <- global %>%
+    left_join(uid, by = c("Province_State", "Country_Region")) %>%
+    select(-c(UID, FIPS)) %>%
+    select(Province_State, Country_Region, date, cases, deaths, 
+           Population, Combined_Key)
+```           
+## Visualizing Data
+# Filter for Sweden and USA
+```{r}
+global_compare <- global %>%
+  filter(Country_Region %in% c("Sweden", "US")) %>%
+  group_by(Country_Region, date, Population) %>%
+  summarise(cases = sum(cases), deaths = sum(deaths), .groups = "drop") %>%
+  mutate(cases_per_100k = (cases / Population) * 100000,
+         deaths_per_100k = (deaths / Population) * 100000)
+```
+# Plot Cases
+```{r}
+ggplot(global_compare, aes(x = date, y = cases_per_100k, color = Country_Region)) +
+  geom_line(linewidth = 1) +
+  labs(title = "Cases per 100k: Sweden vs USA",
+       y = "Cases per 100,000 people", x = "Date")
+```
+
+#Plot Deaths
+```{r}
+ggplot(global_compare, aes(x = date, y = deaths_per_100k, color = Country_Region)) +
+  geom_line(linewidth = 1) +
+  labs(title = "COVID-19 Deaths per 100,000 People: Sweden vs USA",
+       x = "Date",
+       y = "Deaths per 100k",
+       color = "Country") +
+  theme_minimal()
+```
+
+## Plotting the Model: COVID Death Trends in Sweden vs USA
+
+```{r}
+model_deaths <- lm(deaths_per_100k ~ date + Country_Region, data = global_compare)
+summary(model_deaths)
+
+ggplot(global_compare, aes(x = date, y = deaths_per_100k, color = Country_Region)) +
+  geom_point(alpha = 0.3) +
+  geom_smooth(method = "lm", se = FALSE) +
+  labs(
+    title = "Linear Model of COVID-19 Deaths per 100,000 People",
+    subtitle = "Comparing Sweden and the USA",
+    x = "Date",
+    y = "Deaths per 100k",
+    color = "Country"
+  ) +
+  theme_minimal()
+```
+
+## Conclusion
+
+Living through COVID, there was a lot of misinformation. People would often say things that weren’t true or that they had just heard from someone else. One thing I remembered hearing was that Sweden avoided lock-downs and had a better outcome than the United States, but I wasn’t sure if that was actually true or if it was misinformation. I wanted to use the Johns Hopkins data to check it for myself.
+
+I made sure to account for the fact that the United States has a much bigger population than Sweden. To make the comparison fair, I looked at deaths per 100,000 people instead of total deaths so there would not be any bias in this analysis.
+
+The data showed that the United States had about 59 more deaths per 100,000 people than Sweden. That might not sound like a big number, but when you consider how many people live in the U.S., it adds up to tens of thousands more deaths. So based on this analysis, it seems like the U.S. actually had a worse outcome in terms of death rate.
